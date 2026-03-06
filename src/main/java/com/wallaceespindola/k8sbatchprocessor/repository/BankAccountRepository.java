@@ -14,6 +14,9 @@ public interface BankAccountRepository extends JpaRepository<BankAccount, Long> 
 
     Page<BankAccount> findByIdBetweenAndStatus(Long minId, Long maxId, String status, Pageable pageable);
 
+    // Stable paging by ID range — no status filter so pages don't shift as items are processed
+    Page<BankAccount> findByIdBetween(Long minId, Long maxId, Pageable pageable);
+
     long countByStatus(String status);
 
     long countByPartitionIdAndStatus(Integer partitionId, String status);

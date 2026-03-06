@@ -101,15 +101,20 @@ public class BatchConfig {
     public RepositoryItemReader<BankAccount> accountReader(
             BankAccountRepository repository,
             @Value("#{stepExecutionContext['minId']}") Long minId,
-            @Value("#{stepExecutionContext['maxId']}") Long maxId) {
+            @Value("#{stepExecutionContext['maxId']}") Long maxId,
+            @Value("#{stepExecutionContext['total']}") Long total) {
+
+        // Use findByIdBetweenOrderByIdAsc (no status filter) so pages stay stable
+        // as items change from PENDING→PROCESSED during iteration.
+        int pageSize = total != null ? total.intValue() : 100;
 
         return new RepositoryItemReaderBuilder<BankAccount>()
                 .name("accountReader")
                 .repository(repository)
-                .methodName("findByIdBetweenAndStatus")
-                .arguments(List.of(minId, maxId, "PENDING"))
+                .methodName("findByIdBetween")
+                .arguments(List.of(minId, maxId))
                 .sorts(Map.of("id", Sort.Direction.ASC))
-                .pageSize(10)
+                .pageSize(pageSize)
                 .build();
     }
 }
