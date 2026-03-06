@@ -41,14 +41,26 @@ public class ProgressService {
     public void broadcast(ProgressEvent event) {
         if (emitters.isEmpty()) return;
 
+        // Serialize JSON once — reused for all emitters
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(event);
+        } catch (Exception e) {
+            log.error("Failed to serialize SSE event: {}", e.getMessage());
+            return;
+        }
+
         List<SseEmitter> dead = new ArrayList<>();
         for (SseEmitter emitter : emitters) {
-            try {
-                String json = objectMapper.writeValueAsString(event);
-                emitter.send(SseEmitter.event().name("progress").data(json));
-            } catch (IOException e) {
-                dead.add(emitter);
-                log.debug("Removing dead SSE emitter: {}", e.getMessage());
+            // SseEmitter.send() is NOT thread-safe — multiple pod threads call broadcast()
+            // concurrently. Synchronize per-emitter to prevent concurrent write corruption.
+            synchronized (emitter) {
+                try {
+                    emitter.send(SseEmitter.event().name("progress").data(json));
+                } catch (Exception e) {
+                    dead.add(emitter);
+                    log.debug("Removing dead SSE emitter: {}", e.getMessage());
+                }
             }
         }
         emitters.removeAll(dead);
