@@ -205,42 +205,114 @@ In a real Kubernetes deployment, the `HorizontalPodAutoscaler` scales the applic
 - Java 21+
 - Maven 3.9+
 
-### Run locally
+---
+
+### Option 1 — Maven (any OS)
 
 ```bash
 # Clone
 git clone https://github.com/wallaceespindola/k8s-batch-processor.git
 cd k8s-batch-processor
 
-# Build and run
+# Run in foreground (dev mode, hot-reload via DevTools)
 mvn spring-boot:run
 
-# Open the dashboard
-open http://localhost:8080
+# Or: build JAR then run
+mvn clean package -DskipTests
+java -jar target/k8s-batch-processor-*.jar
 ```
 
-### With Docker
+Open the dashboard → **http://localhost:8080**
+
+---
+
+### Option 2 — Shell scripts (macOS / Linux)
+
+The scripts build the JAR automatically if none is found, start the app in the background, and poll `/actuator/health` until the app is ready.
 
 ```bash
-# Build and start
-docker-compose up --build -d
+# Start
+./run.sh
 
-# View logs
-docker-compose logs -f
+# Stop (graceful SIGTERM → SIGKILL after 20 s)
+./stop.sh
+```
+
+Or via Make:
+
+```bash
+make run    # calls run.sh
+make stop   # calls stop.sh
+```
+
+---
+
+### Option 3 — Batch scripts (Windows cmd)
+
+```cmd
+:: Start
+run.bat
+
+:: Stop
+stop.bat
+```
+
+Or via Make:
+
+```cmd
+make run-win
+make stop-win
+```
+
+---
+
+### Option 4 — PowerShell scripts (Windows PowerShell 5.1+)
+
+```powershell
+# Start
+.\run.ps1
 
 # Stop
-docker-compose down
+.\stop.ps1
 ```
 
-### With Make
+Or via Make:
+
+```cmd
+make run-ps
+make stop-ps
+```
+
+> If PowerShell blocks unsigned scripts, run once:
+> `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`
+> The Makefile targets pass `-ExecutionPolicy Bypass` automatically.
+
+---
+
+### Option 5 — Docker Compose
 
 ```bash
-make dev           # Run locally
-make test          # Run tests
-make test-coverage # Tests + JaCoCo coverage
-make docker        # Docker Compose up
-make swagger       # Open Swagger UI
-make k8s-deploy    # Deploy to Kubernetes
+docker-compose up --build -d   # build image + start
+docker-compose logs -f          # follow logs
+docker-compose down             # stop and remove containers
+```
+
+---
+
+### Other Make targets
+
+```bash
+make dev           # mvn spring-boot:run (foreground, hot-reload)
+make build         # mvn clean package -DskipTests
+make test          # run all tests
+make test-coverage # tests + JaCoCo HTML report
+make lint          # Checkstyle
+make clean         # mvn clean
+make docker        # docker-compose up --build -d
+make swagger       # open Swagger UI in browser
+make h2            # open H2 console (auto-connects to batchdb)
+make health        # curl actuator/health
+make k8s-deploy    # kubectl apply -f k8s/
 ```
 
 ---
@@ -268,7 +340,7 @@ Swagger UI: **http://localhost:8080/swagger-ui.html**
 | `GET`  | `/api/batch/health` | Quick health check |
 | `GET`  | `/api/sse/progress` | SSE stream (text/event-stream) |
 | `GET`  | `/actuator/health` | Spring Actuator health |
-| `GET`  | `/h2-console` | H2 database console |
+| `GET`  | `/h2.html` | H2 console (auto-connects with correct JDBC URL) |
 
 ### Start Request
 
@@ -276,9 +348,11 @@ Swagger UI: **http://localhost:8080/swagger-ui.html**
 POST /api/batch/start
 {
   "accountCount": 100,
-  "podCount": 4
+  "podCount": 4,
+  "processingDelayMs": 1000
 }
 ```
+`processingDelayMs` — simulated work time per account in milliseconds. Allowed values: `100`, `300`, `500`, `1000`, `1500`, `2000`. Default: `1000`.
 
 ### SSE Event Format
 
@@ -378,7 +452,10 @@ k8s-batch-processor/
 │   └── dependabot.yml
 ├── Dockerfile
 ├── docker-compose.yml
-└── Makefile
+├── Makefile
+├── run.sh / stop.sh          # macOS / Linux start-stop scripts
+├── run.bat / stop.bat         # Windows cmd start-stop scripts
+└── run.ps1 / stop.ps1         # Windows PowerShell start-stop scripts
 ```
 
 ---
