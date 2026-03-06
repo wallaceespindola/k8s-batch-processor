@@ -73,7 +73,7 @@ swagger:
 	open http://localhost:8080/swagger-ui.html
 
 h2:
-	open http://localhost:8080/h2-console
+	open http://localhost:8080/h2.html
 
 health:
 	curl -s http://localhost:8080/actuator/health | python3 -m json.tool

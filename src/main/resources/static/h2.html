@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>H2 Console – Connecting…</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #8b8fa8;
+               display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        p { font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+<p>Connecting to H2 Console…</p>
+<!--
+    Auto-submits the H2 login form with the correct datasource URL.
+    The H2 console always defaults to jdbc:h2:~/test in its login page,
+    so this redirect pre-fills the correct in-memory URL.
+-->
+<form id="f" method="POST" action="/h2-console/login.do">
+    <input type="hidden" name="language" value="en">
+    <input type="hidden" name="setting"  value="Generic H2 (Embedded)">
+    <input type="hidden" name="name"     value="K8s Batch DB">
+    <input type="hidden" name="driver"   value="org.h2.Driver">
+    <input type="hidden" name="url"      value="jdbc:h2:mem:batchdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL">
+    <input type="hidden" name="user"     value="sa">
+    <input type="hidden" name="password" value="">
+</form>
+<script>document.getElementById('f').submit();</script>
+</body>
+</html>
