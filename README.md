@@ -1,5 +1,27 @@
 # K8s Batch Processor
 
+<p align="center">
+  <img src="docs/banner.svg" alt="K8s Batch Processor Banner" width="100%"/>
+</p>
+
+<p align="center">
+  <a href="https://github.com/wallaceespindola/k8s-batch-processor/actions/workflows/build.yml">
+    <img src="https://github.com/wallaceespindola/k8s-batch-processor/actions/workflows/build.yml/badge.svg" alt="Build & Test"/>
+  </a>
+  <a href="https://github.com/wallaceespindola/k8s-batch-processor/actions/workflows/codeql.yml">
+    <img src="https://github.com/wallaceespindola/k8s-batch-processor/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"/>
+  </a>
+  <img src="https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white" alt="Java 21"/>
+  <img src="https://img.shields.io/badge/Spring%20Boot-3.4.1-6DB33F?logo=springboot&logoColor=white" alt="Spring Boot 3.4.1"/>
+  <img src="https://img.shields.io/badge/Spring%20Batch-5.2-6DB33F?logo=spring&logoColor=white" alt="Spring Batch 5"/>
+  <img src="https://img.shields.io/badge/Kubernetes-HPA%20ready-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes"/>
+  <img src="https://img.shields.io/badge/H2-in--memory-004088?logo=h2&logoColor=white" alt="H2"/>
+  <img src="https://img.shields.io/badge/SSE-real--time-FF6B6B" alt="SSE"/>
+  <a href="https://github.com/wallaceespindola/k8s-batch-processor/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"/>
+  </a>
+</p>
+
 A **Kubernetes-native Spring Batch application** that demonstrates distributed, parallelized batch processing with a real-time live dashboard.
 
 Bank accounts are generated on demand, then distributed across configurable "pods" (Spring Batch partitions), each processing their slice in parallel. The frontend shows real-time progress via **Server-Sent Events**, with one block per account in each pod's progress bar.
