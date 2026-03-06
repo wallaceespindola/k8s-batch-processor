@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K8s Batch Processor – Live Dashboard</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d2e;
+            --surface2: #242740;
+            --border: #2e3254;
+            --accent: #6c63ff;
+            --accent2: #00d4aa;
+            --text: #e8e9f3;
+            --text-muted: #8b8fa8;
+            --success: #00d4aa;
+            --pending: #2e3254;
+            --processing: #f59e0b;
+            --pod-colors: #6c63ff, #00d4aa, #f59e0b, #ef4444, #a855f7, #06b6d4, #84cc16, #f97316;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 36px; height: 36px;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
+        }
+
+        h1 { font-size: 1.25rem; font-weight: 700; }
+        h1 span { color: var(--accent); }
+
+        .status-badge {
+            padding: 0.3rem 0.9rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border: 1px solid currentColor;
+        }
+
+        .status-idle { color: var(--text-muted); border-color: var(--text-muted); }
+        .status-running { color: var(--processing); border-color: var(--processing); animation: pulse 1.5s ease infinite; }
+        .status-completed { color: var(--success); border-color: var(--success); }
+        .status-failed { color: #ef4444; border-color: #ef4444; }
+
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        main { flex: 1; padding: 2rem; max-width: 1400px; margin: 0 auto; width: 100%; }
+
+        .control-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: flex-end;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+
+        label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        input[type="number"] {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 0.6rem 0.9rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            width: 130px;
+            transition: border-color 0.2s;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .btn {
+            padding: 0.65rem 1.4rem;
+            border-radius: 8px;
+            border: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #8b83ff);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.1); }
+        .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .btn-danger {
+            background: transparent;
+            border: 1px solid #ef4444;
+            color: #ef4444;
+        }
+
+        .btn-danger:hover:not(:disabled) { background: #ef4444; color: white; }
+        .btn-danger:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+
+        .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+        .btn-group { display: flex; gap: 0.75rem; }
+
+        /* Stats bar */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1rem 1.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.3rem;
+        }
+
+        .stat-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+        }
+
+        /* Pod panels */
+        .pods-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .pod-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            transition: border-color 0.3s;
+        }
+
+        .pod-panel.active { border-color: var(--accent); }
+        .pod-panel.done { border-color: var(--success); }
+
+        .pod-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.9rem;
+        }
+
+        .pod-name {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 700;
+            font-size: 0.95rem;
+        }
+
+        .pod-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .pod-dot.active { background: var(--processing); animation: pulse 1s ease infinite; }
+        .pod-dot.done { background: var(--success); }
+
+        .pod-count {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        /* Classic progress bar */
+        .progress-bar-wrap {
+            background: var(--surface2);
+            border-radius: 999px;
+            height: 8px;
+            overflow: hidden;
+            margin-bottom: 0.85rem;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            transition: width 0.4s ease;
+            background: linear-gradient(90deg, var(--pod-color, var(--accent)), var(--accent2));
+        }
+
+        /* Block grid — each block = 1 account */
+        .account-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+        }
+
+        .account-block {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            background: var(--pending);
+            transition: background 0.3s ease, transform 0.2s ease;
+            cursor: default;
+        }
+
+        .account-block.processed {
+            background: var(--pod-color, var(--success));
+            transform: scale(1.1);
+        }
+
+        .account-block:hover { opacity: 0.8; }
+
+        /* Log panel */
+        .log-panel {
+            margin-top: 2rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .log-header {
+            padding: 0.8rem 1.25rem;
+            background: var(--surface2);
+            border-bottom: 1px solid var(--border);
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .log-body {
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 0.75rem 1.25rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .log-entry {
+            padding: 0.15rem 0;
+            border-bottom: 1px solid transparent;
+        }
+
+        .log-entry .time { color: var(--accent); margin-right: 0.5rem; }
+        .log-entry .pod  { color: var(--accent2); margin-right: 0.5rem; }
+        .log-entry .acc  { color: var(--text); }
+
+        /* SSE connection indicator */
+        .sse-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .sse-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #6b7280;
+        }
+
+        .sse-dot.connected { background: var(--success); }
+
+        footer {
+            text-align: center;
+            padding: 1rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+        }
+
+        footer a { color: var(--accent); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state .icon { font-size: 3rem; margin-bottom: 0.75rem; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">
+        <div class="logo-icon">⚙</div>
+        <h1><span>K8s</span> Batch Processor</h1>
+    </div>
+    <div style="display:flex; align-items:center; gap:1rem;">
+        <div class="sse-indicator">
+            <div class="sse-dot" id="sseDot"></div>
+            <span id="sseStatus">Connecting…</span>
+        </div>
+        <span class="status-badge status-idle" id="jobBadge">IDLE</span>
+    </div>
+</header>
+
+<main>
+    <!-- Control Panel -->
+    <div class="control-panel">
+        <div class="field-group">
+            <label for="accountCount">Account Count</label>
+            <input type="number" id="accountCount" value="100" min="1" max="10000">
+        </div>
+        <div class="field-group">
+            <label for="podCount">Number of Pods</label>
+            <input type="number" id="podCount" value="4" min="1" max="8">
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-primary" id="startBtn" onclick="startJob()">▶ Start Processing</button>
+            <button class="btn btn-danger" id="resetBtn" onclick="resetJob()">↺ Reset</button>
+            <a href="/swagger-ui.html" target="_blank" class="btn btn-secondary">API Docs</a>
+        </div>
+        <div id="errorMsg" style="color:#ef4444; font-size:0.85rem; display:none;"></div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+        <div class="stat-card">
+            <div class="stat-label">Total Accounts</div>
+            <div class="stat-value" id="statTotal">—</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Processed</div>
+            <div class="stat-value" id="statProcessed" style="color:var(--success)">—</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Remaining</div>
+            <div class="stat-value" id="statRemaining" style="color:var(--processing)">—</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Progress</div>
+            <div class="stat-value" id="statPercent">—</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Active Pods</div>
+            <div class="stat-value" id="statPods">—</div>
+        </div>
+    </div>
+
+    <!-- Pods Grid -->
+    <div class="pods-grid" id="podsGrid">
+        <div class="empty-state">
+            <div class="icon">🚀</div>
+            <p>Configure the parameters above and click <strong>Start Processing</strong></p>
+            <p style="margin-top:0.5rem; font-size:0.85rem;">Pods will appear here once processing begins.</p>
+        </div>
+    </div>
+
+    <!-- Event Log -->
+    <div class="log-panel">
+        <div class="log-header">
+            <span>Live Event Log</span>
+            <button class="btn btn-secondary" style="padding:0.2rem 0.7rem; font-size:0.7rem;" onclick="clearLog()">Clear</button>
+        </div>
+        <div class="log-body" id="logBody">
+            <div class="log-entry"><span class="time">[ready]</span> <span class="acc">Waiting for job to start…</span></div>
+        </div>
+    </div>
+</main>
+
+<footer>
+    Built by <a href="https://github.com/wallaceespindola" target="_blank">Wallace Espindola</a> ·
+    <a href="/swagger-ui.html" target="_blank">Swagger UI</a> ·
+    <a href="/h2-console" target="_blank">H2 Console</a> ·
+    <a href="/actuator/health" target="_blank">Health</a>
+</footer>
+
+<script>
+// ─── State ─────────────────────────────────────────────────────────────────
+const POD_COLORS = [
+    '#6c63ff','#00d4aa','#f59e0b','#ef4444',
+    '#a855f7','#06b6d4','#84cc16','#f97316'
+];
+
+let podState = {}; // { partitionId: { podName, total, processed, blocks: Map<accNum, elem> } }
+let globalTotal = 0;
+let globalProcessed = 0;
+let podCount = 0;
+let eventSource = null;
+let jobRunning = false;
+
+// ─── SSE ───────────────────────────────────────────────────────────────────
+function connectSSE() {
+    if (eventSource) eventSource.close();
+
+    eventSource = new EventSource('/api/sse/progress');
+
+    eventSource.onopen = () => {
+        setSseStatus(true);
+        addLog('system', null, 'SSE connected');
+    };
+
+    eventSource.onerror = () => {
+        setSseStatus(false);
+        // Reconnect after 3s
+        setTimeout(connectSSE, 3000);
+    };
+
+    eventSource.addEventListener('progress', (e) => {
+        const evt = JSON.parse(e.data);
+        handleEvent(evt);
+    });
+}
+
+function setSseStatus(connected) {
+    document.getElementById('sseDot').className = 'sse-dot' + (connected ? ' connected' : '');
+    document.getElementById('sseStatus').textContent = connected ? 'Connected' : 'Reconnecting…';
+}
+
+// ─── Event Handlers ────────────────────────────────────────────────────────
+function handleEvent(evt) {
+    switch (evt.type) {
+        case 'start':   onStart(evt);   break;
+        case 'account': onAccount(evt); break;
+        case 'complete': onComplete(evt); break;
+        case 'reset':   onReset();      break;
+    }
+}
+
+function onStart(evt) {
+    jobRunning = true;
+    podCount = evt.podCount;
+    globalTotal = evt.totalAccounts;
+    globalProcessed = 0;
+    podState = {};
+
+    setJobStatus('RUNNING');
+    setButtons(true);
+    clearPodsGrid();
+    updateStats();
+
+    addLog('system', null, `Job started: ${globalTotal} accounts across ${podCount} pods`);
+}
+
+function onAccount(evt) {
+    const pid = evt.partitionId;
+    const color = POD_COLORS[(pid - 1) % POD_COLORS.length];
+
+    // Create pod panel if first account for this partition
+    if (!podState[pid]) {
+        podState[pid] = { podName: evt.podName, total: evt.total, processed: 0, blocks: new Map() };
+        createPodPanel(pid, evt.podName, evt.total, color);
+    }
+
+    const pod = podState[pid];
+    pod.processed = evt.processed;
+
+    // Mark account block as processed
+    markBlock(pid, evt.accountNumber, color);
+
+    // Update pod progress bar
+    updatePodProgress(pid, evt.processed, evt.total, color);
+
+    // Update global stats
+    globalProcessed = Object.values(podState).reduce((s, p) => s + p.processed, 0);
+    updateStats();
+
+    // Activate pod panel
+    const panel = document.getElementById(`pod-${pid}`);
+    if (panel) {
+        panel.classList.add('active');
+        panel.classList.remove('done');
+    }
+
+    addLog('account', evt.podName, `${evt.accountNumber} processed (${evt.processed}/${evt.total})`);
+}
+
+function onComplete(evt) {
+    jobRunning = false;
+    globalProcessed = evt.totalAccounts || globalTotal;
+    setJobStatus('COMPLETED');
+    setButtons(false);
+    updateStats();
+
+    // Mark all pod panels done
+    Object.keys(podState).forEach(pid => {
+        const panel = document.getElementById(`pod-${pid}`);
+        if (panel) { panel.classList.remove('active'); panel.classList.add('done'); }
+        const dot = document.getElementById(`dot-${pid}`);
+        if (dot) { dot.className = 'pod-dot done'; }
+    });
+
+    addLog('system', null, `✅ Job complete! ${globalProcessed} accounts processed.`);
+}
+
+function onReset() {
+    jobRunning = false;
+    podState = {};
+    globalTotal = 0;
+    globalProcessed = 0;
+    podCount = 0;
+    setJobStatus('IDLE');
+    setButtons(false);
+    clearPodsGrid();
+    resetStats();
+    addLog('system', null, 'Reset complete');
+}
+
+// ─── DOM Builders ──────────────────────────────────────────────────────────
+function clearPodsGrid() {
+    document.getElementById('podsGrid').innerHTML = '';
+}
+
+function createPodPanel(pid, podName, total, color) {
+    const grid = document.getElementById('podsGrid');
+
+    const panel = document.createElement('div');
+    panel.className = 'pod-panel';
+    panel.id = `pod-${pid}`;
+    panel.innerHTML = `
+        <div class="pod-header">
+            <div class="pod-name">
+                <div class="pod-dot active" id="dot-${pid}" style="background:${color}"></div>
+                <span style="color:${color}">${podName}</span>
+            </div>
+            <span class="pod-count" id="count-${pid}">0 / ${total}</span>
+        </div>
+        <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" id="bar-${pid}" style="width:0%; --pod-color:${color}"></div>
+        </div>
+        <div class="account-grid" id="grid-${pid}"></div>
+    `;
+
+    grid.appendChild(panel);
+
+    // Pre-create account blocks
+    const blockGrid = panel.querySelector(`#grid-${pid}`);
+    for (let i = 0; i < total; i++) {
+        const block = document.createElement('div');
+        block.className = 'account-block';
+        block.title = `Acc${i + 1}`;
+        block.id = `block-${pid}-${i}`;
+        blockGrid.appendChild(block);
+        podState[pid].blocks.set(i, block);
+    }
+}
+
+function markBlock(pid, accountNumber, color) {
+    const pod = podState[pid];
+    if (!pod) return;
+
+    // Find block by index (accountNumber like "Acc42" -> index in partition)
+    const processed = pod.processed - 1; // 0-indexed
+    const block = pod.blocks.get(processed);
+    if (block) {
+        block.style.background = color;
+        block.classList.add('processed');
+        block.title = `${accountNumber} ✓`;
+    }
+}
+
+function updatePodProgress(pid, processed, total, color) {
+    const bar = document.getElementById(`bar-${pid}`);
+    const count = document.getElementById(`count-${pid}`);
+    if (bar) {
+        const pct = total > 0 ? (processed * 100 / total) : 0;
+        bar.style.width = pct + '%';
+        bar.style.background = `linear-gradient(90deg, ${color}, #00d4aa)`;
+    }
+    if (count) count.textContent = `${processed} / ${total}`;
+}
+
+// ─── Stats ─────────────────────────────────────────────────────────────────
+function updateStats() {
+    document.getElementById('statTotal').textContent = globalTotal || '—';
+    document.getElementById('statProcessed').textContent = globalProcessed || '0';
+    document.getElementById('statRemaining').textContent = globalTotal ? (globalTotal - globalProcessed) : '—';
+    const pct = globalTotal > 0 ? Math.round(globalProcessed * 100 / globalTotal) : 0;
+    document.getElementById('statPercent').textContent = globalTotal ? pct + '%' : '—';
+    document.getElementById('statPods').textContent = podCount || '—';
+}
+
+function resetStats() {
+    ['statTotal','statProcessed','statRemaining','statPercent','statPods'].forEach(id => {
+        document.getElementById(id).textContent = '—';
+    });
+}
+
+// ─── Log ───────────────────────────────────────────────────────────────────
+function addLog(type, podName, message) {
+    const log = document.getElementById('logBody');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    const t = new Date().toLocaleTimeString('en', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    const podStr = podName ? `<span class="pod">[${podName}]</span>` : '';
+    entry.innerHTML = `<span class="time">[${t}]</span>${podStr}<span class="acc">${message}</span>`;
+    log.prepend(entry);
+    // Keep log to 200 entries
+    while (log.children.length > 200) log.removeChild(log.lastChild);
+}
+
+function clearLog() {
+    document.getElementById('logBody').innerHTML = '';
+}
+
+// ─── Status / Buttons ──────────────────────────────────────────────────────
+function setJobStatus(status) {
+    const badge = document.getElementById('jobBadge');
+    badge.textContent = status;
+    badge.className = 'status-badge status-' + status.toLowerCase();
+}
+
+function setButtons(running) {
+    document.getElementById('startBtn').disabled = running;
+    document.getElementById('resetBtn').disabled = running;
+    document.getElementById('accountCount').disabled = running;
+    document.getElementById('podCount').disabled = running;
+}
+
+function showError(msg) {
+    const el = document.getElementById('errorMsg');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 5000);
+}
+
+// ─── API Calls ─────────────────────────────────────────────────────────────
+async function startJob() {
+    const accountCount = parseInt(document.getElementById('accountCount').value) || 100;
+    const pods = parseInt(document.getElementById('podCount').value) || 4;
+
+    if (accountCount < 1 || accountCount > 10000) { showError('Account count must be 1–10000'); return; }
+    if (pods < 1 || pods > 8) { showError('Pod count must be 1–8'); return; }
+
+    try {
+        const resp = await fetch('/api/batch/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountCount, podCount: pods })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            showError(data.error || 'Failed to start job');
+        } else {
+            addLog('system', null, `Start request accepted: ${accountCount} accounts, ${pods} pods`);
+        }
+    } catch (e) {
+        showError('Network error: ' + e.message);
+    }
+}
+
+async function resetJob() {
+    try {
+        const resp = await fetch('/api/batch/reset', { method: 'POST' });
+        if (!resp.ok) {
+            const data = await resp.json();
+            showError(data.error || 'Reset failed');
+        }
+    } catch (e) {
+        showError('Network error: ' + e.message);
+    }
+}
+
+// ─── Startup ───────────────────────────────────────────────────────────────
+connectSSE();
+
+// Sync state on page load
+fetch('/api/batch/status').then(r => r.json()).then(status => {
+    if (status.totalAccounts > 0) {
+        globalTotal = status.totalAccounts;
+        globalProcessed = status.processedAccounts;
+        podCount = status.podCount;
+        setJobStatus(status.jobStatus);
+        updateStats();
+
+        if (status.jobStatus === 'RUNNING') {
+            setButtons(true);
+        }
+    }
+}).catch(() => {});
+</script>
+</body>
+</html>

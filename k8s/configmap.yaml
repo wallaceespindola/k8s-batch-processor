@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-batch-processor-config
+  namespace: default
+  labels:
+    app: k8s-batch-processor
+data:
+  SPRING_PROFILES_ACTIVE: "kubernetes"
+  JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+  BATCH_MAX_POOL_SIZE: "8"
