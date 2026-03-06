@@ -67,7 +67,7 @@ Write-Host ""
 $proc = Start-Process -FilePath 'java' `
     -ArgumentList "-jar", $jar.FullName `
     -RedirectStandardOutput $LOG_FILE `
-    -RedirectStandardError  $LOG_FILE `
+    -RedirectStandardError  "{$LOG_FILE}.err" `
     -NoNewWindow -PassThru
 
 $proc.Id | Set-Content $PID_FILE
