@@ -125,4 +125,4 @@ spring-shell.log
 
 # ── Runtime files (run / stop) ──────────────────────────────────────────
 .app.pid
-app.log
+app.log*
