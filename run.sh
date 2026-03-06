@@ -58,8 +58,6 @@ info "Log     : ${LOG_FILE}"
 echo ""
 
 nohup java \
-    -XX:+UseContainerSupport \
-    -XX:MaxRAMPercentage=75.0 \
     -Djava.security.egd=file:/dev/./urandom \
     -jar "$JAR" \
     > "$LOG_FILE" 2>&1 &
