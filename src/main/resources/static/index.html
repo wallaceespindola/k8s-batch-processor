@@ -660,7 +660,11 @@ function createPodPanel(pid, podName, total, color) {
         </div>
         <div class="account-grid" id="grid-${pid}"></div>
     `;
-    grid.appendChild(panel);
+
+    // Insert in ascending pod-number order regardless of SSE arrival order
+    const panels = grid.querySelectorAll('.pod-panel');
+    const after = [...panels].find(p => parseInt(p.id.split('-')[1]) > pid);
+    after ? grid.insertBefore(panel, after) : grid.appendChild(panel);
 
     // Pre-create one block element per account in this partition
     const blockGrid = panel.querySelector(`#grid-${pid}`);
