@@ -123,6 +123,6 @@ aider.conf.yml
 # ── Spring Boot ───────────────────────────────────────────────────────────────
 spring-shell.log
 
-# ── Runtime files (run.sh / stop.sh) ──────────────────────────────────────────
+# ── Runtime files (run / stop) ──────────────────────────────────────────
 .app.pid
 app.log
