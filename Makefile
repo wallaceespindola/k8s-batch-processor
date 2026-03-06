@@ -1,4 +1,4 @@
-.PHONY: setup build test lint clean run stop run-win stop-win dev docker docker-down k8s-deploy k8s-delete logs
+.PHONY: setup build test lint clean run stop run-win stop-win run-ps stop-ps dev docker docker-down k8s-deploy k8s-delete logs
 
 # ── Run / Stop — Linux / macOS ────────────────────────────────────────────────
 run:
@@ -7,12 +7,19 @@ run:
 stop:
 	@chmod +x stop.sh && ./stop.sh
 
-# ── Run / Stop — Windows (cmd / PowerShell) ───────────────────────────────────
+# ── Run / Stop — Windows cmd ──────────────────────────────────────────────────
 run-win:
 	run.bat
 
 stop-win:
 	stop.bat
+
+# ── Run / Stop — Windows PowerShell ───────────────────────────────────────────
+run-ps:
+	powershell -ExecutionPolicy Bypass -File run.ps1
+
+stop-ps:
+	powershell -ExecutionPolicy Bypass -File stop.ps1
 
 # ── Development ───────────────────────────────────────────────────────────────
 setup:
