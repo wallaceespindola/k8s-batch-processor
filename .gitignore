@@ -90,6 +90,7 @@ Desktop.ini
 # ── AI Tools ──────────────────────────────────────────────────────────────────
 # Claude Code
 .claude/
+CLAUDE.md
 
 # Cursor
 .cursor/
@@ -121,3 +122,7 @@ aider.conf.yml
 
 # ── Spring Boot ───────────────────────────────────────────────────────────────
 spring-shell.log
+
+# ── Runtime files (run.sh / stop.sh) ──────────────────────────────────────────
+.app.pid
+app.log

@@ -1,4 +1,11 @@
-.PHONY: setup build test lint clean dev docker docker-down k8s-deploy k8s-delete logs
+.PHONY: setup build test lint clean run stop dev docker docker-down k8s-deploy k8s-delete logs
+
+# ── Run / Stop ────────────────────────────────────────────────────────────────
+run:
+	@chmod +x run.sh && ./run.sh
+
+stop:
+	@chmod +x stop.sh && ./stop.sh
 
 # ── Development ───────────────────────────────────────────────────────────────
 setup:
