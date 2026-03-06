@@ -1,5 +1,5 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jdk-alpine AS builder
+FROM eclipse-temurin:25-jdk-alpine AS builder
 WORKDIR /app
 
 COPY pom.xml .
@@ -9,7 +9,7 @@ RUN apk add --no-cache maven && \
     mvn clean package -DskipTests --batch-mode --no-transfer-progress
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine AS runtime
+FROM eclipse-temurin:25-jre-alpine AS runtime
 
 LABEL maintainer="Wallace Espindola <wallace.espindola@gmail.com>"
 LABEL org.opencontainers.image.title="k8s-batch-processor"
