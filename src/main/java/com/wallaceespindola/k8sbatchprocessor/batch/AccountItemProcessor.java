@@ -20,12 +20,15 @@ public class AccountItemProcessor implements ItemProcessor<BankAccount, BankAcco
     @Value("#{stepExecutionContext['partitionId']}")
     private Integer partitionId;
 
+    @Value("#{jobParameters['processingDelayMs']}")
+    private Long processingDelayMs;
+
     @Override
     public BankAccount process(BankAccount account) throws Exception {
         log.debug("[{}] Processing account: {}", podName, account.getAccountNumber());
 
-        // Simulate backend processing time (1 second per account)
-        Thread.sleep(1000);
+        // Simulate configurable backend processing time per account
+        Thread.sleep(processingDelayMs != null ? processingDelayMs : 1000L);
 
         account.setStatus("PROCESSED");
         account.setPodName(podName);

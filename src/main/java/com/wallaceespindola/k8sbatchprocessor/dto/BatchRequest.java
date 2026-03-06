@@ -15,5 +15,10 @@ public record BatchRequest(
     @Schema(description = "Number of pods (partitions) to use for parallel processing", example = "4", defaultValue = "4")
     @Min(value = 1, message = "Pod count must be at least 1")
     @Max(value = 8, message = "Pod count must not exceed 8")
-    int podCount
+    int podCount,
+
+    @Schema(description = "Processing delay per account in milliseconds (100, 300, 500, 1000, 1500, 2000)", example = "1000", defaultValue = "1000")
+    @Min(value = 100, message = "Processing delay must be at least 100ms")
+    @Max(value = 2000, message = "Processing delay must not exceed 2000ms")
+    int processingDelayMs
 ) {}

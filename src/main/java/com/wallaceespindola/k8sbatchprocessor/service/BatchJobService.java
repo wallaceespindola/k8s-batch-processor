@@ -51,6 +51,7 @@ public class BatchJobService {
             JobParameters params = new JobParametersBuilder()
                     .addLong("podCount", (long) request.podCount())
                     .addLong("accountCount", (long) request.accountCount())
+                    .addLong("processingDelayMs", (long) request.processingDelayMs())
                     .addLong("timestamp", System.currentTimeMillis())
                     .toJobParameters();
 

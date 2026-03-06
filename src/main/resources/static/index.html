@@ -102,21 +102,26 @@
             letter-spacing: 0.04em;
         }
 
-        input[type="number"] {
+        input[type="number"], select {
             background: var(--surface2);
             border: 1px solid var(--border);
             color: var(--text);
             padding: 0.6rem 0.9rem;
             border-radius: 8px;
             font-size: 1rem;
-            width: 130px;
             transition: border-color 0.2s;
         }
 
-        input[type="number"]:focus {
+        input[type="number"] { width: 130px; }
+
+        select { width: 130px; cursor: pointer; }
+
+        input[type="number"]:focus, select:focus {
             outline: none;
             border-color: var(--accent);
         }
+
+        select:disabled, input[type="number"]:disabled { opacity: 0.45; cursor: not-allowed; }
 
         .btn {
             padding: 0.65rem 1.4rem;
@@ -374,6 +379,17 @@
             <label for="podCount">Number of Pods</label>
             <input type="number" id="podCount" value="4" min="1" max="8">
         </div>
+        <div class="field-group">
+            <label for="processingDelay">Processing Delay</label>
+            <select id="processingDelay">
+                <option value="100">0.1 s</option>
+                <option value="300">0.3 s</option>
+                <option value="500">0.5 s</option>
+                <option value="1000" selected>1 s</option>
+                <option value="1500">1.5 s</option>
+                <option value="2000">2 s</option>
+            </select>
+        </div>
         <div class="btn-group">
             <button class="btn btn-primary" id="startBtn" onclick="startJob()">▶ Start Processing</button>
             <button class="btn btn-danger" id="resetBtn" onclick="resetJob()">↺ Reset</button>
@@ -430,8 +446,9 @@
 <footer>
     Built by <a href="https://github.com/wallaceespindola" target="_blank">Wallace Espindola</a> ·
     <a href="/swagger-ui.html" target="_blank">Swagger UI</a> ·
-    <a href="/h2-console" target="_blank">H2 Console</a> ·
+    <a href="/h2-console" target="_blank" title="JDBC URL: jdbc:h2:mem:batchdb · User: sa · Password: (empty)">H2 Console</a> ·
     <a href="/actuator/health" target="_blank">Health</a>
+    <br><span style="font-size:0.7rem; color:#555e7a;">H2 login — JDBC URL: <code style="color:var(--accent)">jdbc:h2:mem:batchdb</code> · User: <code style="color:var(--accent)">sa</code> · Password: <em>(empty)</em></span>
 </footer>
 
 <script>
@@ -492,8 +509,8 @@ function onStart(evt) {
     setButtons(true);
     clearPodsGrid();
 
-    // Pre-create ALL pod panels immediately — don't wait for first account event.
-    // This ensures panels appear even if some pods' SSE events are dropped.
+    // Pre-create ALL pod panels immediately so all pods appear even if their
+    // SSE events are dropped due to concurrent send contention.
     for (let i = 1; i <= podCount; i++) {
         const color = POD_COLORS[(i - 1) % POD_COLORS.length];
         const total = computePartitionTotal(i, globalTotal, podCount);
@@ -508,13 +525,19 @@ function onStart(evt) {
 function onAccount(evt) {
     const pid = evt.partitionId;
     const color = POD_COLORS[(pid - 1) % POD_COLORS.length];
-    const pod = podState[pid];
-    if (!pod) return; // panel pre-created in onStart; skip stale events after reset
 
+    // Lazy fallback: if onStart() was missed (SSE reconnected after start event),
+    // create the panel on first account event received for this partition.
+    if (!podState[pid]) {
+        podState[pid] = { podName: evt.podName, total: evt.total, processed: 0, markedBlocks: 0, blocks: new Map() };
+        createPodPanel(pid, evt.podName, evt.total, color);
+    }
+
+    const pod = podState[pid];
     pod.processed = evt.processed;
 
-    // Mark the NEXT uncoloured block using a monotonic counter.
-    // Using evt.processed-1 as index breaks when events are dropped (gaps → wrong blocks lit).
+    // Mark the NEXT uncoloured block via monotonic counter — never derive
+    // position from evt.processed because gaps from dropped events corrupt the index.
     markBlock(pid, evt.accountNumber, color);
     updatePodProgress(pid, pod.processed, pod.total, color);
 
@@ -533,20 +556,25 @@ function onComplete(evt) {
     setButtons(false);
     addLog('system', null, `✅ Job complete! ${evt.totalAccounts || globalTotal} accounts processed.`);
 
-    // Fetch authoritative final state from backend and reconcile the UI.
-    // This fills any blocks/counts that were missed due to dropped SSE events.
+    // Fetch authoritative final state. This reconciles any dropped SSE events:
+    // creates missing pod panels, fills remaining unlit blocks, and corrects counts.
     fetch('/api/batch/status').then(r => r.json()).then(status => {
-        globalTotal = status.totalAccounts;
+        globalTotal     = status.totalAccounts;
         globalProcessed = status.processedAccounts;
-        updateStats();
 
         (status.partitions || []).forEach(p => {
-            const pid = p.partitionId;
+            const pid   = p.partitionId;
             const color = POD_COLORS[(pid - 1) % POD_COLORS.length];
-            const pod = podState[pid];
-            if (!pod) return;
 
-            // Fill any blocks not yet visually marked due to dropped events
+            // Create panel if pod received no SSE events at all (entire pod's events dropped)
+            if (!podState[pid]) {
+                podState[pid] = { podName: p.podName, total: p.total, processed: 0, markedBlocks: 0, blocks: new Map() };
+                createPodPanel(pid, p.podName, p.total, color);
+            }
+
+            const pod = podState[pid];
+
+            // Fill every block not yet coloured (SSE events that never arrived)
             while (pod.markedBlocks < p.processed) {
                 const block = pod.blocks.get(pod.markedBlocks);
                 if (block) {
@@ -557,6 +585,7 @@ function onComplete(evt) {
                 pod.markedBlocks++;
             }
 
+            // Update the counter label and progress bar to exact DB values
             updatePodProgress(pid, p.processed, p.total, color);
 
             const panel = document.getElementById(`pod-${pid}`);
@@ -564,14 +593,26 @@ function onComplete(evt) {
             const dot = document.getElementById(`dot-${pid}`);
             if (dot) { dot.className = 'pod-dot done'; }
         });
-    }).catch(() => {
-        // Fallback if status fetch fails
-        globalProcessed = globalTotal;
+
         updateStats();
-        Object.keys(podState).forEach(pid => {
+
+    }).catch(() => {
+        // Fallback when fetch fails: fill remaining blocks from known pod totals
+        globalProcessed = globalTotal;
+        Object.keys(podState).forEach(pidStr => {
+            const pid   = parseInt(pidStr);
+            const pod   = podState[pid];
+            const color = POD_COLORS[(pid - 1) % POD_COLORS.length];
+            while (pod.markedBlocks < pod.total) {
+                const block = pod.blocks.get(pod.markedBlocks);
+                if (block) { block.style.background = color; block.classList.add('processed'); block.title = '✓'; }
+                pod.markedBlocks++;
+            }
+            updatePodProgress(pid, pod.total, pod.total, color);
             const panel = document.getElementById(`pod-${pid}`);
             if (panel) { panel.classList.remove('active'); panel.classList.add('done'); }
         });
+        updateStats();
     });
 }
 
@@ -695,10 +736,11 @@ function setJobStatus(status) {
 }
 
 function setButtons(running) {
-    document.getElementById('startBtn').disabled    = running;
-    document.getElementById('resetBtn').disabled    = running;
-    document.getElementById('accountCount').disabled = running;
-    document.getElementById('podCount').disabled    = running;
+    document.getElementById('startBtn').disabled        = running;
+    document.getElementById('resetBtn').disabled        = running;
+    document.getElementById('accountCount').disabled   = running;
+    document.getElementById('podCount').disabled       = running;
+    document.getElementById('processingDelay').disabled = running;
 }
 
 function showError(msg) {
@@ -710,19 +752,20 @@ function showError(msg) {
 
 // ─── API Calls ─────────────────────────────────────────────────────────────
 async function startJob() {
-    const accountCount = parseInt(document.getElementById('accountCount').value) || 100;
-    const pods = parseInt(document.getElementById('podCount').value) || 4;
+    const accountCount     = parseInt(document.getElementById('accountCount').value) || 100;
+    const pods             = parseInt(document.getElementById('podCount').value) || 4;
+    const processingDelayMs = parseInt(document.getElementById('processingDelay').value) || 1000;
     if (accountCount < 1 || accountCount > 10000) { showError('Account count must be 1–10000'); return; }
     if (pods < 1 || pods > 8) { showError('Pod count must be 1–8'); return; }
     try {
         const resp = await fetch('/api/batch/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ accountCount, podCount: pods })
+            body: JSON.stringify({ accountCount, podCount: pods, processingDelayMs })
         });
         const data = await resp.json();
         if (!resp.ok) showError(data.error || 'Failed to start job');
-        else addLog('system', null, `Start request accepted: ${accountCount} accounts, ${pods} pods`);
+        else addLog('system', null, `Start request accepted: ${accountCount} accounts, ${pods} pods, ${processingDelayMs}ms delay`);
     } catch (e) { showError('Network error: ' + e.message); }
 }
 

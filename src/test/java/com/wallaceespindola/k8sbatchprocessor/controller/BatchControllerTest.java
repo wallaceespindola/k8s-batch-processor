@@ -34,7 +34,7 @@ class BatchControllerTest {
 
         mockMvc.perform(post("/api/batch/start")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new BatchRequest(100, 4))))
+                        .content(objectMapper.writeValueAsString(new BatchRequest(100, 4, 1000))))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.message").value("Batch job started"));
     }
@@ -45,7 +45,7 @@ class BatchControllerTest {
 
         mockMvc.perform(post("/api/batch/start")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new BatchRequest(100, 4))))
+                        .content(objectMapper.writeValueAsString(new BatchRequest(100, 4, 1000))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
     }
