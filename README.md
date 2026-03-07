@@ -201,6 +201,19 @@ In a real Kubernetes deployment, the `HorizontalPodAutoscaler` scales the applic
 
 ## Quick Start
 
+There are **two completely separate ways** to run this application:
+
+| Mode | What runs | Scripts used |
+|---|---|---|
+| **Local** | Plain `java -jar` on your machine, no containers | `run.sh` / `run.bat` / `run.ps1`, Maven, Docker Compose |
+| **Kubernetes** | Docker image deployed to a K8s cluster via `kubectl` | `kubectl apply -f k8s/` |
+
+The `run.sh`, `run.bat` and `run.ps1` scripts **do not start Kubernetes**. They simply build the JAR (if missing) and launch it as a regular Java process on port 8080 — exactly the same as `java -jar`.
+
+---
+
+## Running locally
+
 ### Prerequisites
 - Java 21+
 - Maven 3.9+
@@ -373,7 +386,10 @@ POST /api/batch/start
 
 ---
 
-## Kubernetes Deployment
+## Running on Kubernetes
+
+> This section requires Docker, `kubectl`, and a Kubernetes cluster (local or cloud).
+> The scripts from the **Running locally** section above are **not used here** — Kubernetes runs the app inside containers managed by the cluster.
 
 ### Prerequisites
 
