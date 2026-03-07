@@ -375,25 +375,218 @@ POST /api/batch/start
 
 ## Kubernetes Deployment
 
+### Prerequisites
+
+- A running Kubernetes cluster — local ([minikube](https://minikube.sigs.k8s.io/) or [kind](https://kind.sigs.k8s.io/)) or cloud (EKS / GKE / AKS)
+- `kubectl` configured and pointing at your cluster
+- Docker (to build and push the image)
+
+---
+
+### Step 1 — Start a local cluster (minikube example)
+
 ```bash
-# Build and push Docker image
-docker build -t wallaceespindola/k8s-batch-processor:latest .
-docker push wallaceespindola/k8s-batch-processor:latest
+# Install minikube if needed: https://minikube.sigs.k8s.io/docs/start/
+minikube start --cpus=4 --memory=4g
 
-# Deploy to cluster
-kubectl apply -f k8s/
-
-# Check pods
-kubectl get pods -l app=k8s-batch-processor
-
-# View logs
-kubectl logs -l app=k8s-batch-processor -f
-
-# HPA will auto-scale between 1-8 replicas based on CPU/memory
-kubectl get hpa k8s-batch-processor-hpa
+# Point Docker to minikube's registry so images don't need to be pushed
+eval $(minikube docker-env)        # macOS/Linux
+# minikube docker-env | Invoke-Expression   # Windows PowerShell
 ```
 
-The HPA scales the number of application replicas. In a production setup with remote partitioning (e.g., via Kafka), each replica would be an independent worker pod. In this POC, the single replica uses thread-based partitioning to simulate N pods within one process.
+> **kind alternative**
+> ```bash
+> kind create cluster --name batch
+> kubectl cluster-info --context kind-batch
+> ```
+
+---
+
+### Step 2 — Build and push the Docker image
+
+```bash
+# Build the JAR first
+mvn clean package -DskipTests
+
+# Build the Docker image
+docker build -t wallaceespindola/k8s-batch-processor:latest .
+
+# If using a remote registry (DockerHub, ECR, GCR…)
+docker push wallaceespindola/k8s-batch-processor:latest
+
+# If using minikube's built-in registry (no push needed)
+eval $(minikube docker-env)
+docker build -t wallaceespindola/k8s-batch-processor:latest .
+# Also set imagePullPolicy: Never in k8s/deployment.yaml for local images
+```
+
+---
+
+### Step 3 — Deploy to the cluster
+
+```bash
+# Apply all manifests (Deployment + Services + HPA + ConfigMap)
+kubectl apply -f k8s/
+
+# Verify everything is running
+kubectl get pods -l app=k8s-batch-processor
+kubectl get svc  -l app=k8s-batch-processor
+kubectl get hpa  k8s-batch-processor-hpa
+```
+
+Expected output:
+
+```
+NAME                                   READY   STATUS    RESTARTS   AGE
+k8s-batch-processor-7d9f8b6c4d-xk2p9  1/1     Running   0          30s
+
+NAME                              TYPE        CLUSTER-IP      PORT(S)
+k8s-batch-processor               ClusterIP   10.96.0.1       80/TCP
+k8s-batch-processor-nodeport      NodePort    10.96.0.2       80:30080/TCP
+
+NAME                          REFERENCE                        TARGETS         MINPODS   MAXPODS
+k8s-batch-processor-hpa       Deployment/k8s-batch-processor   cpu: 5%/60%     1         8
+```
+
+---
+
+### Step 4 — Access the dashboard
+
+```bash
+# Option A: NodePort (port 30080 is fixed in service.yaml)
+minikube ip                         # get cluster IP, e.g. 192.168.49.2
+open http://192.168.49.2:30080      # open dashboard
+
+# Option B: minikube service shortcut
+minikube service k8s-batch-processor-nodeport
+
+# Option C: port-forward (any cluster)
+kubectl port-forward svc/k8s-batch-processor 8080:80
+open http://localhost:8080
+```
+
+---
+
+### Step 5 — Tear down
+
+```bash
+kubectl delete -f k8s/             # remove all resources
+# minikube stop                    # pause cluster
+# minikube delete                  # destroy cluster completely
+```
+
+Or via Make:
+
+```bash
+make k8s-deploy    # kubectl apply -f k8s/
+make k8s-delete    # kubectl delete -f k8s/
+make k8s-status    # kubectl get pods -l app=k8s-batch-processor
+make k8s-logs      # kubectl logs -l app=k8s-batch-processor --tail=100 -f
+```
+
+---
+
+### How "Number of Pods" maps to Kubernetes
+
+This is the key design point of the POC — understanding the two layers of "pods":
+
+#### Layer 1 — Kubernetes replicas (physical pods)
+
+The `Deployment` starts with **1 replica** by default. The `HorizontalPodAutoscaler` watches CPU (≥ 60%) and memory (≥ 70%) metrics and scales the Deployment between **1 and 8 replicas** automatically:
+
+```
+┌─────────────────────────────────────────────────┐
+│  Kubernetes Deployment: k8s-batch-processor      │
+│                                                  │
+│  replica-1 (pod)  replica-2 (pod)  ...          │
+│  Spring Boot app  Spring Boot app                │
+│  port 8080        port 8080                      │
+└─────────────────────────────────────────────────┘
+         ▲ scaled by HPA on CPU/memory load
+```
+
+#### Layer 2 — Spring Batch partitions (logical pods / threads)
+
+When you click **Start** and set "Number of Pods = 4", that number travels as a `JobParameter` into the Spring Batch job. Inside the single application process, the `@JobScope` partitioned step creates **4 worker threads** — one per partition — each claiming an exclusive ID range of accounts:
+
+```
+POST /api/batch/start  { "podCount": 4, "accountCount": 100 }
+         │
+         ▼
+BatchJobService.startJob()
+  JobParameters: podCount=4, accountCount=100
+         │
+         ▼
+AccountPartitioner.partition(gridSize=4)
+  → partition-1: minId=1,  maxId=25,  podName=pod-1
+  → partition-2: minId=26, maxId=50,  podName=pod-2
+  → partition-3: minId=51, maxId=75,  podName=pod-3
+  → partition-4: minId=76, maxId=100, podName=pod-4
+         │
+         ▼
+ThreadPoolTaskExecutor (corePoolSize=4)
+  Thread batch-pod-1  →  reads Acc1–Acc25   →  processes  →  writes + SSE
+  Thread batch-pod-2  →  reads Acc26–Acc50  →  processes  →  writes + SSE  } parallel
+  Thread batch-pod-3  →  reads Acc51–Acc75  →  processes  →  writes + SSE
+  Thread batch-pod-4  →  reads Acc76–Acc100 →  processes  →  writes + SSE
+```
+
+#### How podCount flows through the code
+
+```
+UI select "4 pods"
+  → fetch POST /api/batch/start { podCount: 4 }
+    → BatchController → BatchJobService.startJob(request)
+      → JobParameters.addLong("podCount", 4)
+        → @JobScope partitionedStep reads #{jobParameters['podCount']}
+          → ThreadPoolTaskExecutor(corePoolSize=4)
+          → partitioner.partition(gridSize=4)
+            → 4 ExecutionContexts with minId/maxId ranges
+              → 4 worker threads each running their own reader/processor/writer
+```
+
+The `@JobScope` annotation is critical: it forces Spring to create a **new Step bean per job execution**, so the thread pool size and grid size are set dynamically at launch time, not at application startup.
+
+#### POC vs production remote partitioning
+
+| | This POC | Production (remote partitioning) |
+|---|---|---|
+| "Pods" | Threads inside one JVM | Actual Kubernetes pods (separate processes) |
+| Partition coordination | `ThreadPoolTaskExecutor` | Kafka topics / HTTP / JMS |
+| State sharing | Shared in-memory H2 | External PostgreSQL / Redis |
+| Scaling | HPA scales the single app | HPA scales worker pods independently |
+| Pod count | Chosen in UI → `JobParameter` | Equals number of running worker replicas |
+
+In a remote-partitioning setup, you would deploy a **manager pod** (runs the partitioner, writes partitions to Kafka) and **N worker pods** (each consumes one Kafka partition and runs its own reader/processor/writer). The HPA would scale worker pods based on queue depth or CPU. This POC simulates that topology with threads, making the full flow observable in a single process without a cluster.
+
+---
+
+### HPA behaviour in detail
+
+```yaml
+# k8s/hpa.yaml
+minReplicas: 1
+maxReplicas: 8
+metrics:
+  - cpu    averageUtilization: 60   # scale up when avg CPU > 60 %
+  - memory averageUtilization: 70   # scale up when avg memory > 70 %
+scaleUp:   stabilizationWindow: 30s,  add up to 2 pods per 30 s
+scaleDown: stabilizationWindow: 120s, remove 1 pod per 60 s
+```
+
+To trigger the HPA manually during testing, run several concurrent batch jobs or use a load generator:
+
+```bash
+# Watch HPA in real time
+kubectl get hpa k8s-batch-processor-hpa -w
+
+# Watch pods scale up/down
+kubectl get pods -l app=k8s-batch-processor -w
+
+# Generate CPU load with a tight loop (from another terminal)
+kubectl run load --image=busybox --restart=Never -- \
+  sh -c "while true; do wget -q -O- http://k8s-batch-processor/api/batch/health; done"
+```
 
 ---
 
