@@ -199,18 +199,73 @@ In a real Kubernetes deployment, the `HorizontalPodAutoscaler` scales the applic
 
 ---
 
-## Quick Start
+## Simulated mode vs Real Kubernetes mode
 
-There are **two completely separate ways** to run this application:
-
-| Mode | What runs | Scripts used |
-|---|---|---|
-| **Local** | Plain `java -jar` on your machine, no containers | `run.sh` / `run.bat` / `run.ps1`, Maven, Docker Compose |
-| **Kubernetes** | Docker image deployed to a K8s cluster via `kubectl` | `kubectl apply -f k8s/` |
-
-The `run.sh`, `run.bat` and `run.ps1` scripts **do not start Kubernetes**. They simply build the JAR (if missing) and launch it as a regular Java process on port 8080 — exactly the same as `java -jar`.
+This project can run in two fundamentally different modes. Understanding the difference is essential before choosing a run script.
 
 ---
+
+### Simulated mode (local — `run.sh` / `run.bat` / `run.ps1` / Maven)
+
+The entire application runs as **a single Java process** on your machine. No Docker, no Kubernetes.
+
+When you click **Start** and choose *Number of Pods = 4*, the application creates **4 JVM threads** — one per Spring Batch partition. These threads are labelled `pod-1` through `pod-4` in the dashboard, but they are **not** real Kubernetes pods. They share the same JVM heap, the same H2 in-memory database, and the same network interface.
+
+```
+Your machine
+└── JVM process (java -jar)
+    ├── Thread batch-pod-1  →  accounts  1–25   (simulated pod)
+    ├── Thread batch-pod-2  →  accounts 26–50   (simulated pod)
+    ├── Thread batch-pod-3  →  accounts 51–75   (simulated pod)
+    └── Thread batch-pod-4  →  accounts 76–100  (simulated pod)
+         ↑ all share the same H2 database and JVM
+```
+
+**What is simulated**: the parallel distribution of work across named workers, the SSE progress per pod, the partition algorithm.
+
+**What is NOT real**: Kubernetes, containers, network isolation, independent JVMs.
+
+**Use this mode for**: development, debugging, demos on a laptop without Docker or minikube installed.
+
+---
+
+### Real Kubernetes mode (`run-docker.sh` / `run-docker.bat` / `run-docker.ps1`)
+
+The application is packaged into a **Docker image** and deployed to a **minikube** cluster as a Kubernetes `Deployment`. Multiple K8s pods (container replicas) are started — each is an independent OS process with its own JVM, its own memory, and its own H2 database.
+
+```
+minikube cluster
+├── K8s pod 1  (Spring Boot container)  ← serves HTTP requests (load-balanced)
+├── K8s pod 2  (Spring Boot container)  ← standby / load-balanced
+├── K8s pod 3  (Spring Boot container)  ← standby / load-balanced
+└── K8s pod 4  (Spring Boot container)  ← standby / load-balanced
+     ↑ each pod has its own isolated JVM and H2 database
+```
+
+**What is real**: Docker containers, Kubernetes Deployment, Services, HPA auto-scaling, `kubectl` management, container resource limits, readiness/liveness probes.
+
+**Current limitation**: because each pod uses an **in-memory H2 database**, pods cannot share account data. When you hit *Start*, the K8s Service load-balances the request to **one** of the pods, and that pod runs all batch partitions internally as threads. The other pods are idle for that job.
+
+**What it would take to truly distribute across pods**: replace H2 with a shared **PostgreSQL** (all pods read/write the same table) and implement **Spring Batch remote partitioning** (a manager pod assigns partitions to worker pods via Kafka or HTTP). That path is documented in the *Running on Kubernetes* section.
+
+---
+
+### Side-by-side comparison
+
+| | Simulated (local) | Real Kubernetes |
+|---|---|---|
+| Start command | `./run.sh` · `run.bat` · `mvn spring-boot:run` | `./run-docker.sh` · `run-docker.bat` · `.\run-docker.ps1` |
+| "Pods" are | JVM threads inside 1 process | Docker containers managed by K8s |
+| Database | 1 shared H2 in-memory | 1 H2 per pod (isolated) |
+| Batch partitioning | Thread-based (within 1 JVM) | Thread-based within the pod that handles the request |
+| K8s / Docker needed | No | Yes (minikube + Docker) |
+| HPA auto-scaling | No | Yes (CPU ≥ 60 % · memory ≥ 70 %) |
+| True load distribution | ✅ (threads share DB) | ⚠️ (pods isolated — shared DB needed) |
+| Good for | Dev · debug · demos | K8s learning · container ops · HPA demos |
+
+---
+
+## Quick Start
 
 ## Running locally
 
@@ -642,6 +697,136 @@ kubectl get pods -l app=k8s-batch-processor -w
 # Generate CPU load with a tight loop (from another terminal)
 kubectl run load --image=busybox --restart=Never -- \
   sh -c "while true; do wget -q -O- http://k8s-batch-processor/api/batch/health; done"
+```
+
+---
+
+## Docker & Kubernetes Command Reference
+
+A consolidated quick reference for the most common Docker and Kubernetes operations in this project.
+
+---
+
+### Docker
+
+```bash
+# ── Image ──────────────────────────────────────────────────────────────────
+# Build the JAR then the Docker image
+mvn clean package -DskipTests
+docker build -t wallaceespindola/k8s-batch-processor:latest .
+
+# Build image via Spring Boot Maven plugin (no Dockerfile needed)
+mvn spring-boot:build-image
+
+# Push to Docker Hub (or any registry)
+docker push wallaceespindola/k8s-batch-processor:latest
+
+# List local images
+docker images | grep k8s-batch-processor
+
+# Remove the local image
+docker rmi wallaceespindola/k8s-batch-processor:latest
+
+# ── Run a single container ─────────────────────────────────────────────────
+docker run -d -p 8080:8080 --name batch wallaceespindola/k8s-batch-processor:latest
+docker logs -f batch          # follow logs
+docker stop batch             # graceful stop
+docker rm batch               # remove container
+
+# ── Docker Compose ─────────────────────────────────────────────────────────
+docker-compose up --build -d  # build image + start in background
+docker-compose logs -f        # follow logs
+docker-compose ps             # list running services
+docker-compose down           # stop and remove containers
+
+# Via Make
+make docker        # docker-compose up --build -d
+make docker-down   # docker-compose down
+make docker-logs   # docker-compose logs -f
+make docker-image  # mvn spring-boot:build-image
+```
+
+---
+
+### minikube
+
+```bash
+# ── Cluster lifecycle ──────────────────────────────────────────────────────
+minikube start --cpus=4 --memory=4g --driver=docker
+minikube stop                   # pause the cluster
+minikube delete                 # destroy the cluster completely
+minikube status                 # check cluster health
+
+# ── Docker environment ─────────────────────────────────────────────────────
+# Point your Docker CLI at minikube's daemon so images are available without pushing
+eval $(minikube docker-env)                    # macOS / Linux
+minikube docker-env | Invoke-Expression        # Windows PowerShell (in run-docker.ps1)
+
+# ── Access the app ─────────────────────────────────────────────────────────
+minikube service k8s-batch-processor-nodeport  # open NodePort URL in browser
+minikube service k8s-batch-processor-nodeport --url  # print URL only
+minikube ip                                    # get cluster IP (e.g. 192.168.49.2)
+minikube dashboard                             # open the Kubernetes dashboard
+```
+
+---
+
+### kubectl — Pods & Deployments
+
+```bash
+# ── Deploy / remove ────────────────────────────────────────────────────────
+kubectl apply  -f k8s/          # create / update all manifests
+kubectl delete -f k8s/          # remove all resources (keeps cluster running)
+
+# ── Inspect ───────────────────────────────────────────────────────────────
+kubectl get pods -l app=k8s-batch-processor          # list pods
+kubectl get pods -l app=k8s-batch-processor -o wide  # with node + IP info
+kubectl get pods -l app=k8s-batch-processor -w       # watch live changes
+kubectl describe pod <pod-name>                      # full pod details
+kubectl get events --sort-by=.lastTimestamp          # cluster events (debug)
+
+# ── Logs ──────────────────────────────────────────────────────────────────
+kubectl logs -l app=k8s-batch-processor --tail=100 -f   # all pods, follow
+kubectl logs <pod-name>                                  # single pod
+kubectl logs <pod-name> --previous                       # previous (crashed) container
+
+# ── Scaling ───────────────────────────────────────────────────────────────
+kubectl scale deployment k8s-batch-processor --replicas=4
+kubectl rollout status deployment/k8s-batch-processor   # wait for rollout
+kubectl rollout restart deployment/k8s-batch-processor  # rolling restart
+
+# ── Access ────────────────────────────────────────────────────────────────
+kubectl port-forward svc/k8s-batch-processor 8080:80    # localhost:8080 → service
+kubectl exec -it <pod-name> -- /bin/sh                  # shell into pod
+
+# ── Services & HPA ────────────────────────────────────────────────────────
+kubectl get svc  -l app=k8s-batch-processor
+kubectl get hpa  k8s-batch-processor-hpa
+kubectl get hpa  k8s-batch-processor-hpa -w             # watch HPA scaling
+
+# ── Patch imagePullPolicy for local minikube images ───────────────────────
+kubectl patch deployment k8s-batch-processor \
+  -p '{"spec":{"template":{"spec":{"containers":[{"name":"k8s-batch-processor","imagePullPolicy":"Never"}]}}}}'
+```
+
+---
+
+### Make shortcuts (Docker & Kubernetes)
+
+```bash
+make docker            # docker-compose up --build -d
+make docker-down       # docker-compose down
+make docker-logs       # docker-compose logs -f
+make docker-image      # mvn spring-boot:build-image
+
+make run-docker        # minikube + image build + k8s deploy (4 pods default)
+make run-docker PODS=2 # same with custom pod count
+make stop-docker       # tear down k8s resources
+
+make k8s-deploy        # kubectl apply -f k8s/
+make k8s-delete        # kubectl delete -f k8s/
+make k8s-status        # kubectl get pods -l app=k8s-batch-processor
+make k8s-logs          # kubectl logs -l app=k8s-batch-processor --tail=100 -f
 ```
 
 ---
