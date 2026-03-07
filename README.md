@@ -302,7 +302,47 @@ make stop-ps
 
 ---
 
-### Option 5 — Docker Compose
+### Option 5 — Kubernetes via Docker / minikube (run-docker scripts)
+
+These scripts start **minikube**, build the Docker image inside minikube's registry, deploy the K8s manifests, scale to N pods and open the dashboard — all in one command.
+
+> **Prerequisite**: install [minikube](https://minikube.sigs.k8s.io/docs/start/) and [kubectl](https://kubernetes.io/docs/tasks/tools/).
+
+```bash
+# macOS / Linux
+./run-docker.sh          # 4 pods (default)
+./run-docker.sh 2        # 2 pods
+./stop-docker.sh
+./stop-docker.sh --stop-minikube     # also pause minikube
+./stop-docker.sh --delete-minikube   # destroy the cluster
+```
+
+```cmd
+:: Windows cmd
+run-docker.bat 4
+stop-docker.bat --stop-minikube
+```
+
+```powershell
+# Windows PowerShell
+.\run-docker.ps1 -Pods 4
+.\stop-docker.ps1 -StopMinikube
+.\stop-docker.ps1 -DeleteMinikube
+```
+
+Via Make (Linux/macOS):
+
+```bash
+make run-docker            # default 4 pods
+make run-docker PODS=2     # custom count
+make stop-docker
+```
+
+> **Architecture note**: in this POC each K8s pod runs the full Spring Boot app with its own in-memory H2 database. Batch partitioning is **thread-based within whichever pod serves the request**. The *Number of Pods* slider in the dashboard controls the thread-pool (partitions) inside that pod — not the number of K8s replicas. True multi-pod distribution would require a shared PostgreSQL and Spring Batch remote partitioning (see *Running on Kubernetes* section below).
+
+---
+
+### Option 6 — Docker Compose
 
 ```bash
 docker-compose up --build -d   # build image + start

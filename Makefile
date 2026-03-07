@@ -1,4 +1,4 @@
-.PHONY: setup build test lint clean run stop run-win stop-win run-ps stop-ps dev docker docker-down k8s-deploy k8s-delete logs
+.PHONY: setup build test lint clean run stop run-win stop-win run-ps stop-ps run-docker stop-docker run-docker-win stop-docker-win run-docker-ps stop-docker-ps dev docker docker-down k8s-deploy k8s-delete logs
 
 # ── Run / Stop — Linux / macOS ────────────────────────────────────────────────
 run:
@@ -20,6 +20,29 @@ run-ps:
 
 stop-ps:
 	powershell -ExecutionPolicy Bypass -File stop.ps1
+
+# ── Run / Stop — Kubernetes via Docker (minikube) — Linux / macOS ─────────────
+# Usage: make run-docker          (default 4 pods)
+#        make run-docker PODS=2   (custom pod count)
+run-docker:
+	@chmod +x run-docker.sh && ./run-docker.sh $(PODS)
+
+stop-docker:
+	@chmod +x stop-docker.sh && ./stop-docker.sh
+
+# ── Run / Stop — Kubernetes via Docker (minikube) — Windows cmd ───────────────
+run-docker-win:
+	run-docker.bat $(PODS)
+
+stop-docker-win:
+	stop-docker.bat
+
+# ── Run / Stop — Kubernetes via Docker (minikube) — Windows PowerShell ────────
+run-docker-ps:
+	powershell -ExecutionPolicy Bypass -File run-docker.ps1 -Pods $(if $(PODS),$(PODS),4)
+
+stop-docker-ps:
+	powershell -ExecutionPolicy Bypass -File stop-docker.ps1
 
 # ── Development ───────────────────────────────────────────────────────────────
 setup:
