@@ -442,6 +442,8 @@ make k8s-deploy    # kubectl apply -f k8s/
 5. Watch real-time progress bars — each block turns colored when that account is processed
 6. Click **↺ Reset** to clear state and start fresh
 
+![screenshot.png](docs/screenshot.png)
+
 ---
 
 ## API Reference
