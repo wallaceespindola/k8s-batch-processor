@@ -231,10 +231,10 @@ Your machine
 
 ### Real Kubernetes mode (`run-docker.sh` / `run-docker.bat` / `run-docker.ps1`)
 
-The application is packaged into a **Docker image** and deployed to a **minikube** cluster as a Kubernetes `Deployment`. Multiple K8s pods (container replicas) are started — each is an independent OS process with its own JVM, its own memory, and its own H2 database.
+The application is packaged into a **Docker image** and deployed to a local Kubernetes cluster as a Kubernetes `Deployment`. Multiple K8s pods (container replicas) are started — each is an independent OS process with its own JVM, its own memory, and its own H2 database.
 
 ```
-minikube cluster
+local K8s cluster (colima / minikube)
 ├── K8s pod 1  (Spring Boot container)  ← serves HTTP requests (load-balanced)
 ├── K8s pod 2  (Spring Boot container)  ← standby / load-balanced
 ├── K8s pod 3  (Spring Boot container)  ← standby / load-balanced
@@ -242,7 +242,7 @@ minikube cluster
      ↑ each pod has its own isolated JVM and H2 database
 ```
 
-**What is real**: Docker containers, Kubernetes Deployment, Services, HPA auto-scaling, `kubectl` management, container resource limits, readiness/liveness probes.
+**What is real**: Docker containers, Kubernetes Deployment, Services, HPA auto-scaling, `kubectl` management, container resource limits, readiness/liveness/startup probes.
 
 **Current limitation**: because each pod uses an **in-memory H2 database**, pods cannot share account data. When you hit *Start*, the K8s Service load-balances the request to **one** of the pods, and that pod runs all batch partitions internally as threads. The other pods are idle for that job.
 
@@ -258,7 +258,7 @@ minikube cluster
 | "Pods" are | JVM threads inside 1 process | Docker containers managed by K8s |
 | Database | 1 shared H2 in-memory | 1 H2 per pod (isolated) |
 | Batch partitioning | Thread-based (within 1 JVM) | Thread-based within the pod that handles the request |
-| K8s / Docker needed | No | Yes (minikube + Docker) |
+| K8s / Docker needed | No | Yes — colima (macOS) or minikube + Docker |
 | HPA auto-scaling | No | Yes (CPU ≥ 60 % · memory ≥ 70 %) |
 | True load distribution | ✅ (threads share DB) | ⚠️ (pods isolated — shared DB needed) |
 | Good for | Dev · debug · demos | K8s learning · container ops · HPA demos |
@@ -357,19 +357,27 @@ make stop-ps
 
 ---
 
-### Option 5 — Kubernetes via Docker / minikube (run-docker scripts)
+### Option 5 — Kubernetes via Docker / colima / minikube (run-docker scripts)
 
-These scripts start **minikube**, build the Docker image inside minikube's registry, deploy the K8s manifests, scale to N pods and open the dashboard — all in one command.
+These scripts auto-detect your local Kubernetes runtime (**colima** on macOS or **minikube** everywhere), build the Docker image, deploy the K8s manifests, scale to N pods and open the dashboard — all in one command.
 
-> **Prerequisite**: install [minikube](https://minikube.sigs.k8s.io/docs/start/) and [kubectl](https://kubernetes.io/docs/tasks/tools/).
+> **Prerequisites (macOS — colima)**
+> ```bash
+> brew install colima docker kubectl
+> ```
+> **Prerequisites (any OS — minikube)**
+> Install [minikube](https://minikube.sigs.k8s.io/docs/start/) and [kubectl](https://kubernetes.io/docs/tasks/tools/).
 
 ```bash
 # macOS / Linux
 ./run-docker.sh          # 4 pods (default)
 ./run-docker.sh 2        # 2 pods
+
 ./stop-docker.sh
+./stop-docker.sh --stop-colima       # also stop colima (macOS)
+./stop-docker.sh --delete-colima     # destroy colima VM (macOS)
 ./stop-docker.sh --stop-minikube     # also pause minikube
-./stop-docker.sh --delete-minikube   # destroy the cluster
+./stop-docker.sh --delete-minikube   # destroy minikube cluster
 ```
 
 ```cmd
@@ -488,21 +496,32 @@ POST /api/batch/start
 
 ### Prerequisites
 
-- A running Kubernetes cluster — local ([minikube](https://minikube.sigs.k8s.io/) or [kind](https://kind.sigs.k8s.io/)) or cloud (EKS / GKE / AKS)
-- `kubectl` configured and pointing at your cluster
-- Docker (to build and push the image)
+- A running Kubernetes cluster — local ([colima](https://github.com/abiosoft/colima), [minikube](https://minikube.sigs.k8s.io/), or [kind](https://kind.sigs.k8s.io/)) or cloud (EKS / GKE / AKS)
+- `kubectl` configured and pointing at your cluster (`brew install kubectl` on macOS)
+- Docker (to build and push the image; `brew install docker` for colima)
 
 ---
 
-### Step 1 — Start a local cluster (minikube example)
+### Step 1 — Start a local cluster
+
+**colima (recommended on macOS)**
 
 ```bash
-# Install minikube if needed: https://minikube.sigs.k8s.io/docs/start/
+# Install: brew install colima docker kubectl
+colima start --kubernetes --cpu 4 --memory 8
+# Docker and Kubernetes share the same VM — no eval needed
+kubectl cluster-info   # verify
+```
+
+**minikube (cross-platform)**
+
+```bash
+# Install: https://minikube.sigs.k8s.io/docs/start/
 minikube start --cpus=4 --memory=4g
 
-# Point Docker to minikube's registry so images don't need to be pushed
-eval $(minikube docker-env)        # macOS/Linux
-# minikube docker-env | Invoke-Expression   # Windows PowerShell
+# Point Docker to minikube's daemon so images don't need to be pushed
+eval $(minikube docker-env)                   # macOS/Linux
+# minikube docker-env | Invoke-Expression     # Windows PowerShell
 ```
 
 > **kind alternative**
@@ -564,14 +583,18 @@ k8s-batch-processor-hpa       Deployment/k8s-batch-processor   cpu: 5%/60%     1
 ### Step 4 — Access the dashboard
 
 ```bash
-# Option A: NodePort (port 30080 is fixed in service.yaml)
+# colima: NodePort is not reachable from the macOS host — use port-forward
+kubectl port-forward svc/k8s-batch-processor 8080:80
+open http://localhost:8080
+
+# minikube Option A: NodePort (port 30080 is fixed in service.yaml)
 minikube ip                         # get cluster IP, e.g. 192.168.49.2
 open http://192.168.49.2:30080      # open dashboard
 
-# Option B: minikube service shortcut
+# minikube Option B: service shortcut
 minikube service k8s-batch-processor-nodeport
 
-# Option C: port-forward (any cluster)
+# Any cluster: port-forward fallback
 kubectl port-forward svc/k8s-batch-processor 8080:80
 open http://localhost:8080
 ```
@@ -744,6 +767,40 @@ make docker        # docker-compose up --build -d
 make docker-down   # docker-compose down
 make docker-logs   # docker-compose logs -f
 make docker-image  # mvn spring-boot:build-image
+```
+
+---
+
+### colima (macOS / Linux)
+
+```bash
+# ── Install ─────────────────────────────────────────────────────────────────
+brew install colima docker kubectl
+
+# ── Cluster lifecycle ──────────────────────────────────────────────────────
+colima start --kubernetes --cpu 4 --memory 8   # start VM + Kubernetes (k3s)
+colima stop                                    # pause (preserves state)
+colima delete                                  # destroy VM completely
+colima status                                  # check runtime health
+colima list                                    # list all colima instances
+
+# ── Docker context ─────────────────────────────────────────────────────────
+docker context use colima    # point Docker CLI at colima's daemon
+docker context show          # verify current context
+
+# ── Kubernetes ────────────────────────────────────────────────────────────
+# colima writes kubeconfig automatically — just use kubectl
+kubectl cluster-info
+kubectl get nodes
+
+# ── Access the app ─────────────────────────────────────────────────────────
+# NodePort is NOT directly reachable from macOS host — use port-forward:
+kubectl port-forward svc/k8s-batch-processor 8080:80
+# Then open http://localhost:8080
+
+# ── Restart Kubernetes (e.g. after kubectl install) ───────────────────────
+colima kubernetes stop
+colima kubernetes start      # rewrites kubeconfig with new API server address
 ```
 
 ---

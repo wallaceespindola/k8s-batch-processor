@@ -23,7 +23,7 @@ spec:
       containers:
         - name: k8s-batch-processor
           image: wallaceespindola/k8s-batch-processor:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               name: http
@@ -46,17 +46,23 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "1000m"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12   # allows up to 20 + 12*10 = 140s for startup
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
               port: 8080
-            initialDelaySeconds: 20
             periodSeconds: 10
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
               port: 8080
-            initialDelaySeconds: 30
             periodSeconds: 15
             failureThreshold: 3
       terminationGracePeriodSeconds: 60

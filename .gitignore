@@ -126,3 +126,4 @@ spring-shell.log
 # ── Runtime files (run / stop) ──────────────────────────────────────────
 .app.pid
 app.log*
+.k8s-portforward.pid

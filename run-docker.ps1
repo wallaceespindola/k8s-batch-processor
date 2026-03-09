@@ -1,10 +1,11 @@
 # ---------------------------------------------------------------------------
-# run-docker.ps1 — Build the Docker image, deploy to Kubernetes (minikube),
+# run-docker.ps1 — Build the Docker image, deploy to Kubernetes,
 #                  scale to N pods and open the dashboard.
 #
 # Usage: .\run-docker.ps1 [-Pods 4]
 #
-# Prerequisites: docker, kubectl, minikube  (or an existing cluster)
+# Prerequisites: docker, kubectl
+#   Runtime (pick one): minikube  OR  Docker Desktop with Kubernetes enabled
 # ---------------------------------------------------------------------------
 #Requires -Version 5.1
 param(
@@ -13,12 +14,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$APP_NAME  = 'k8s-batch-processor'
-$IMAGE     = 'wallaceespindola/k8s-batch-processor:latest'
-$MAX_WAIT  = 180
+$APP_NAME   = 'k8s-batch-processor'
+$IMAGE      = 'wallaceespindola/k8s-batch-processor:latest'
+$MAX_WAIT   = 300
 $PORT_LOCAL = 8080
+$UseMinikube = $false
 
-# ── Banner ──────────────────────────────────────────────────────────────────
+# ── Banner ───────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "====================================================="
 Write-Host "  K8s Batch Processor — Kubernetes Deploy"
@@ -31,16 +33,24 @@ Write-Host "      serves your request. Set 'Number of Pods' in the dashboard"
 Write-Host "      to control how many worker threads that pod uses."
 Write-Host ""
 
-# ── Prereq checks ───────────────────────────────────────────────────────────
-foreach ($cmd in @('docker', 'kubectl')) {
-    if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-        Write-Host "[ERROR] '$cmd' not found. Install it first."
-        exit 1
-    }
+# ── Check docker ─────────────────────────────────────────────────────────────
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    Write-Host "[ERROR] 'docker' not found. Install Docker Desktop."
+    exit 1
 }
 
-# ── Start / verify minikube ──────────────────────────────────────────────────
+# ── Check kubectl ─────────────────────────────────────────────────────────────
+if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
+    Write-Host "[ERROR] 'kubectl' not found."
+    Write-Host "        Install options:"
+    Write-Host "          - Docker Desktop (enable Kubernetes in Settings)"
+    Write-Host "          - winget install -e --id Kubernetes.kubectl"
+    exit 1
+}
+
+# ── Detect and start Kubernetes runtime ──────────────────────────────────────
 if (Get-Command minikube -ErrorAction SilentlyContinue) {
+    $UseMinikube = $true
     $mkStatus = (minikube status -f '{{.Host}}' 2>$null)
     if ($mkStatus -ne 'Running') {
         Write-Host "[INFO]  Starting minikube (cpus=4 memory=4g)..."
@@ -48,11 +58,24 @@ if (Get-Command minikube -ErrorAction SilentlyContinue) {
     } else {
         Write-Host "[INFO]  minikube is already running."
     }
+    # Point Docker CLI at minikube's internal daemon so the locally built
+    # image is visible to the cluster (minikube has its own Docker daemon).
     Write-Host "[INFO]  Pointing Docker at minikube's daemon..."
     & minikube docker-env --shell powershell | Invoke-Expression
 } else {
-    Write-Host "[WARN]  minikube not found — using current kubectl context."
-    kubectl cluster-info | Out-Null
+    # Fallback: Docker Desktop Kubernetes or any pre-configured cluster.
+    # Docker Desktop shares the host Docker daemon — no docker-env needed.
+    Write-Host "[INFO]  minikube not found — checking current kubectl context..."
+    try {
+        kubectl cluster-info | Out-Null
+        Write-Host "[INFO]  Using current kubectl context (Docker Desktop or remote cluster)."
+    } catch {
+        Write-Host "[ERROR] No reachable Kubernetes cluster."
+        Write-Host "        Options:"
+        Write-Host "          - Install minikube:       winget install minikube"
+        Write-Host "          - Enable Kubernetes in Docker Desktop Settings"
+        exit 1
+    }
 }
 
 # ── Build Docker image ───────────────────────────────────────────────────────
@@ -60,9 +83,12 @@ Write-Host "[INFO]  Building Docker image: $IMAGE"
 Write-Host "[INFO]  (Maven build runs inside Docker — no local JDK required)"
 docker build -t $IMAGE .
 
-# ── Apply manifests + patch imagePullPolicy ──────────────────────────────────
+# ── Apply manifests ───────────────────────────────────────────────────────────
 Write-Host "[INFO]  Applying K8s manifests..."
 kubectl apply -f k8s/
+
+# ── Patch imagePullPolicy to Never (use local image, no registry) ─────────────
+Write-Host "[INFO]  Patching imagePullPolicy to Never (local image)..."
 kubectl patch deployment $APP_NAME `
     -p '{"spec":{"template":{"spec":{"containers":[{"name":"k8s-batch-processor","imagePullPolicy":"Never"}]}}}}' `
     2>$null
@@ -75,23 +101,33 @@ kubectl scale deployment $APP_NAME --replicas=$Pods
 Write-Host "[INFO]  Waiting for rollout (timeout ${MAX_WAIT}s)..."
 kubectl rollout status "deployment/$APP_NAME" --timeout="${MAX_WAIT}s"
 
-# ── Show pods ────────────────────────────────────────────────────────────────
+# ── Show pods ─────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "[INFO]  Running pods:"
 kubectl get pods -l app=$APP_NAME -o wide
 Write-Host ""
 
-# ── Resolve URL ──────────────────────────────────────────────────────────────
+# ── Resolve URL ───────────────────────────────────────────────────────────────
 $appUrl = $null
-if (Get-Command minikube -ErrorAction SilentlyContinue) {
+if ($UseMinikube) {
     $appUrl = (minikube service k8s-batch-processor-nodeport --url 2>$null | Select-Object -First 1)
 }
 if (-not $appUrl) {
     Write-Host "[INFO]  Starting port-forward → localhost:$PORT_LOCAL ..."
-    Get-Process kubectl -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*port-forward*" } | Stop-Process -Force -ErrorAction SilentlyContinue
-    $pf = Start-Process kubectl -ArgumentList "port-forward svc/$APP_NAME ${PORT_LOCAL}:80" -PassThru -NoNewWindow
+    # Kill only kubectl processes whose command line contains 'port-forward' (not all kubectl)
+    if (Test-Path '.k8s-portforward.pid') {
+        $oldPid = [int](Get-Content '.k8s-portforward.pid' -Raw).Trim()
+        Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+        Remove-Item '.k8s-portforward.pid' -Force -ErrorAction SilentlyContinue
+    }
+    Get-CimInstance Win32_Process -Filter "Name='kubectl.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*port-forward*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    $pf = Start-Process kubectl `
+        -ArgumentList "port-forward", "svc/$APP_NAME", "${PORT_LOCAL}:80" `
+        -PassThru -NoNewWindow
     $pf.Id | Set-Content '.k8s-portforward.pid'
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 3
     $appUrl = "http://localhost:$PORT_LOCAL"
 }
 
