@@ -176,7 +176,7 @@ In a real Kubernetes deployment, the `HorizontalPodAutoscaler` scales the applic
 | Lombok | latest | `@Slf4j`, `@Builder`, `@RequiredArgsConstructor` boilerplate reduction |
 | springdoc-openapi | 2.7.0 | Swagger UI + OpenAPI 3 spec generation |
 | Jakarta Validation | 3.1 (via Boot) | `@Min`/`@Max` on request DTOs |
-| JaCoCo | 0.8.12 | Test coverage reporting |
+| JaCoCo | 0.8.15 | Test coverage reporting |
 
 ### Frontend
 | Technology | Role |
