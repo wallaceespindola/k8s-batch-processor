@@ -28,6 +28,24 @@ Bank accounts are generated on demand, then distributed across configurable "pod
 
 ---
 
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Simulated mode vs Real Kubernetes mode](#simulated-mode-vs-real-kubernetes-mode)
+- [Quick Start](#quick-start)
+- [Running locally](#running-locally)
+- [Usage](#usage)
+- [API Reference](#api-reference)
+- [Running on Kubernetes](#running-on-kubernetes)
+- [Docker & Kubernetes Command Reference](#docker--kubernetes-command-reference)
+- [Running Tests](#running-tests)
+- [Project Structure](#project-structure)
+- [Author](#author)
+- [License](#license)
+
+---
+
 ## Architecture
 
 ```
